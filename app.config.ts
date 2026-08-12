@@ -20,12 +20,14 @@ const env = {
   iosBundleId: bundleId,
   androidPackage: bundleId,
 };
+
 const config: ExpoConfig = {
   extra: {
-  eas: {
-    projectId: "d5ba72b9-3b7a-4714-b433-cf4b4f1b2fbe",
+    eas: {
+      projectId: "d5ba72b9-3b7a-4714-b433-cf4b4f1b2fbe",
+    },
   },
-},
+
   name: env.appName,
   slug: env.appSlug,
   version: "1.0.0",
@@ -49,12 +51,9 @@ const config: ExpoConfig = {
   android: {
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
-      foregroundImage:
-        "./assets/images/android-icon-foreground.png",
-      backgroundImage:
-        "./assets/images/android-icon-background.png",
-      monochromeImage:
-        "./assets/images/android-icon-monochrome.png",
+      foregroundImage: "./assets/images/android-icon-foreground.png",
+      backgroundImage: "./assets/images/android-icon-background.png",
+      monochromeImage: "./assets/images/android-icon-monochrome.png",
     },
 
     edgeToEdgeEnabled: true,
@@ -87,6 +86,9 @@ const config: ExpoConfig = {
 
   plugins: [
     "expo-router",
+    "expo-asset",
+    "expo-font",
+    "expo-web-browser",
 
     [
       "expo-audio",

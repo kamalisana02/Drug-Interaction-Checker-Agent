@@ -20,25 +20,20 @@ export default function MedicationsScreen() {
   const { medicines, removeMedicine, clearAll, isLoading } = useMedications();
   const colors = useColors();
 
-  const handleDelete = (id: string, name: string) => {
-    Alert.alert(
-      "Remove Medicine",
-      `Are you sure you want to remove ${name} from your profile?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            removeMedicine(id);
-            triggerHaptic();
-          },
-        },
-      ]
-    );
+  // Tapping the bin removes the medicine right away.
+  const handleDelete = (id: string) => {
+    removeMedicine(id);
+    triggerHaptic();
   };
 
+  // Alert.alert does nothing on web, so use window.confirm there.
   const handleClearAll = () => {
+    if (Platform.OS === "web") {
+      if (typeof window !== "undefined" && window.confirm("Remove all medicines? This cannot be undone.")) {
+        clearAll();
+      }
+      return;
+    }
     Alert.alert(
       "Clear All Medicines",
       "Are you sure you want to remove all medicines? This cannot be undone.",
@@ -88,7 +83,9 @@ export default function MedicationsScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={() => handleDelete(item.id, item.name)}
+          onPress={() => handleDelete(item.id)}
+          hitSlop={10}
+          accessibilityLabel={`Delete ${item.name}`}
           style={({ pressed }) => ({
             opacity: pressed ? 0.6 : 1,
             transform: [{ scale: pressed ? 0.9 : 1 }],

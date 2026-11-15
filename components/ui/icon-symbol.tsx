@@ -5,37 +5,58 @@ import { SymbolWeight, SymbolViewProps } from "expo-symbols";
 import { ComponentProps } from "react";
 import { OpaqueColorValue, type StyleProp, type TextStyle } from "react-native";
 
-type IconMapping = Record<SymbolViewProps["name"], ComponentProps<typeof MaterialIcons>["name"]>;
-type IconSymbolName = keyof typeof MAPPING;
+type MappedIconName = ComponentProps<typeof MaterialIcons>["name"];
 
-/**
- * Add your SF Symbols to Material Icons mappings here.
- * - see Material Icons in the [Icons Directory](https://icons.expo.fyi).
- * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
- */
-const MAPPING = {
+const MAPPING: Record<string, MappedIconName> = {
   "house.fill": "home",
   "paperplane.fill": "send",
   "chevron.left.forwardslash.chevron.right": "code",
   "chevron.right": "chevron-right",
-} as IconMapping;
+  "chevron.left": "chevron-left",
+  "magnifyingglass": "search",
+  "plus.circle.fill": "add-circle",
+  "camera.fill": "camera-alt",
+  "pills.fill": "medication",
+  "person.fill": "person",
+  "shield.fill": "verified",
+  "xmark.circle.fill": "cancel",
+  "checkmark.circle.fill": "check-circle",
+  "checkmark.seal.fill": "verified",
+  "exclamationmark.triangle.fill": "warning",
+  "xmark.circle": "cancel",
+  "sparkles": "auto-awesome",
+  "doc.text.fill": "description",
+  "square.and.arrow.up": "share",
+  "trash.fill": "delete",
+  "heart.fill": "favorite",
+  "star.fill": "star",
+  "bolt.fill": "bolt",
+  "bell.fill": "notifications",
+  "clock.fill": "access-time",
+  "cross.case.fill": "local-hospital",
+  "brain.head.profile": "psychology",
+  "stethoscope": "medical-services",
+  "pill.fill": "medication",
+  "circle": "radio-button-unchecked",
+  "info.circle.fill": "info",
+  "arrow.right.circle.fill": "arrow-right-alt",
+  "waveform.path.ecg.rectangle.fill": "monitor-heart",
+  "heart.text.square.fill": "health-and-safety",
+  "photo.fill": "photo",
+};
 
-/**
- * An icon component that uses native SF Symbols on iOS, and Material Icons on Android and web.
- * This ensures a consistent look across platforms, and optimal resource usage.
- * Icon `name`s are based on SF Symbols and require manual mapping to Material Icons.
- */
 export function IconSymbol({
   name,
   size = 24,
   color,
   style,
 }: {
-  name: IconSymbolName;
+  name: SymbolViewProps["name"];
   size?: number;
   color: string | OpaqueColorValue;
   style?: StyleProp<TextStyle>;
   weight?: SymbolWeight;
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  const iconName = MAPPING[name] || "help";
+  return <MaterialIcons color={color} size={size} name={iconName} style={style} />;
 }

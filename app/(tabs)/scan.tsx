@@ -9,9 +9,23 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useMedications } from "@/lib/medicationStore";
 import { DRUG_INFO, fuzzyMatchDrug } from "@/lib/drugDatabase";
+import {
+  extractDosage,
+  findMedicationMatch,
+  recognizePrescriptionImage,
+  splitRecognizedLines,
+} from "@/lib/prescriptionOcr";
 import { useColors } from "@/hooks/use-colors";
 
 const SCAN_HISTORY_KEY = "@medcheck_scan_history_v1";
+
+type PrescriptionSource = {
+  id: string;
+  title: string;
+  subtitle: string;
+  icon: React.ComponentProps<typeof IconSymbol>["name"];
+  extractedText: string[];
+};
 
 const DEMO_PRESCRIPTIONS = [
   {
@@ -69,7 +83,8 @@ export default function ScanScreen() {
   const colors = useColors();
 
   const [step, setStep] = useState<ScanStep>("idle");
-  const [selectedPrescription, setSelectedPrescription] = useState<typeof DEMO_PRESCRIPTIONS[0] | null>(null);
+  const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionSource | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
   const [editableMeds, setEditableMeds] = useState<string[]>([]);
   const [confirmedMeds, setConfirmedMeds] = useState<Set<string>>(new Set());
@@ -141,41 +156,75 @@ export default function ScanScreen() {
     }
   };
 
-  const processImageAndExtract = (imageUri?: string) => {
-    if (imageUri) {
-      setCapturedImageUri(imageUri);
-    }
-    const randomPrescription = DEMO_PRESCRIPTIONS[Math.floor(Math.random() * DEMO_PRESCRIPTIONS.length)];
-    setSelectedPrescription(randomPrescription);
-    setEditableMeds([...randomPrescription.extractedText]);
-    setConfirmedMeds(new Set(randomPrescription.extractedText));
+  const processImageAndExtract = async (imageUri: string) => {
+    setScanError(null);
+    setCapturedImageUri(imageUri);
+    setSelectedPrescription(null);
+    setEditableMeds([]);
+    setConfirmedMeds(new Set());
     setStep("scanning");
-    setScanProgress(15);
-    setScanStatusMessage("Enhancing image contrast & normalizing lighting...");
+    setScanProgress(5);
+    setScanStatusMessage("Reading text from the image...");
     triggerHaptic();
 
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    try {
+      const { text: recognizedText, engine } = await recognizePrescriptionImage(
+        imageUri,
+        Platform.OS as "web" | "ios" | "android",
+        (value, message) => {
+          setScanProgress(Math.max(5, Math.min(95, value)));
+          setScanStatusMessage(message);
+        },
+      );
+      console.log("[OCR] engine:", engine, "| raw text:", recognizedText);
 
-    setTimeout(() => {
-      setScanProgress(45);
-      setScanStatusMessage("AI Neural OCR: Recognizing prescription lines...");
-    }, 700);
+      // Lines with a known medicine are shown as "Name dose" and pre-selected.
+      // With the AI reader, medicines that are NOT in our database are also listed (not pre-selected).
+      const found: string[] = [];
+      const unknown: string[] = [];
+      for (const line of splitRecognizedLines(recognizedText)) {
+        const match = findMedicationMatch(line);
+        if (match) {
+          const dose = extractDosage(line);
+          const text = dose === "As prescribed" ? match.name : `${match.name} ${dose}`;
+          if (!found.includes(text)) found.push(text);
+        } else if (engine === "ai" && /[A-Za-z]{3,}/.test(line) && !unknown.includes(line)) {
+          unknown.push(line);
+        }
+      }
+      const allLines = [...found, ...unknown];
 
-    setTimeout(() => {
-      setScanProgress(75);
-      setScanStatusMessage("Fuzzy matching & verifying medical database...");
-    }, 1500);
+      if (allLines.length === 0) {
+        const preview = recognizedText.replace(/\s+/g, " ").trim().slice(0, 160);
+        setScanError(
+          preview
+            ? `Text was read but no known medicine was found. Read: "${preview}". Try a clearer photo, or add the medicine manually.`
+            : "No readable text found. Try a sharper, well-lit photo, or add the medicine manually.",
+        );
+        setStep("idle");
+        return;
+      }
 
-    setTimeout(() => {
+      setSelectedPrescription({
+        id: "scan",
+        title: "Scanned Prescription",
+        subtitle: "From your photo",
+        icon: "camera.fill",
+        extractedText: allLines,
+      });
+      setEditableMeds(allLines);
+      setConfirmedMeds(new Set(found));
       setScanProgress(100);
-      setScanStatusMessage("Extraction complete!");
-    }, 2200);
-
-    setTimeout(() => {
+      setScanStatusMessage("Done. Please review each line.");
       setStep("results");
-    }, 2600);
+      if (Platform.OS !== "web") {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      console.error("OCR error:", error);
+      setScanError(error instanceof Error ? error.message : "Could not read this image. Try another photo.");
+      setStep("idle");
+    }
   };
 
   const handleCameraScan = async () => {
@@ -197,7 +246,7 @@ export default function ScanScreen() {
       }
     } catch (error) {
       console.error("Camera error:", error);
-      processImageAndExtract();
+      setScanError(error instanceof Error ? error.message : "Could not open the camera.");
     }
   };
 
@@ -220,11 +269,11 @@ export default function ScanScreen() {
       }
     } catch (error) {
       console.error("Library error:", error);
-      processImageAndExtract();
+      setScanError(error instanceof Error ? error.message : "Could not open the gallery.");
     }
   };
 
-  const startDemoScan = (prescription: typeof DEMO_PRESCRIPTIONS[0]) => {
+  const startDemoScan = (prescription: PrescriptionSource) => {
     setSelectedPrescription(prescription);
     setEditableMeds([...prescription.extractedText]);
     setConfirmedMeds(new Set(prescription.extractedText));
@@ -287,7 +336,8 @@ export default function ScanScreen() {
     const parts = text.split(" - ");
     const nameAndDose = parts[0].trim();
     const nameMatch = nameAndDose.match(/^([A-Za-z]+(?:\s[A-Za-z]+)?)/);
-    const doseMatch = nameAndDose.match(/(\d+\s*mg)/i);
+    const parsedDose = extractDosage(nameAndDose);
+    const dosageText = parsedDose === "As prescribed" ? "As directed" : parsedDose;
 
     if (nameMatch) {
       const rawName = nameMatch[1].trim();
@@ -297,15 +347,15 @@ export default function ScanScreen() {
         const info = DRUG_INFO[drugName];
         return {
           name: drugName,
-          dosage: doseMatch ? doseMatch[1] : text,
+          dosage: dosageText,
           category: info?.category || "Unknown",
         };
       }
     }
     return {
       name: nameAndDose,
-      dosage: doseMatch ? doseMatch[1] : "As directed",
-      category: "General",
+      dosage: dosageText,
+      category: "Not in database",
     };
   };
 
@@ -349,6 +399,7 @@ export default function ScanScreen() {
     setEditableMeds([]);
     setConfirmedMeds(new Set());
     setEditingIndex(null);
+    setScanError(null);
   };
 
   return (
@@ -390,6 +441,12 @@ export default function ScanScreen() {
         {step === "idle" && (
           <ScrollView showsVerticalScrollIndicator={false}>
             <View className="gap-4 pb-8">
+              {scanError && (
+                <View className="bg-surface rounded-2xl p-4 border border-error">
+                  <Text className="text-error text-xs font-bold mb-1">Scan problem</Text>
+                  <Text className="text-foreground text-xs">{scanError}</Text>
+                </View>
+              )}
               {/* Camera Button (Clean Minimalist Card instead of chunky gradient) */}
               <Pressable
                 onPress={handleCameraScan}
@@ -408,7 +465,7 @@ export default function ScanScreen() {
                       Take Photo with Camera
                     </Text>
                     <Text className="text-muted text-xs mt-0.5">
-                      AI OCR extraction with manual correction
+                      Reads the photo and lets you correct it
                     </Text>
                   </View>
                 </View>
@@ -443,7 +500,7 @@ export default function ScanScreen() {
               {/* Demo Prescriptions */}
               <View className="mt-2">
                 <Text className="text-xs font-bold text-muted uppercase tracking-wider mb-3">
-                  Quick Demo Prescriptions
+                  Sample prescriptions (demo data, no scan)
                 </Text>
 
                 <View className="gap-2.5">
@@ -488,7 +545,7 @@ export default function ScanScreen() {
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
             <Text className="text-foreground text-lg font-bold mb-1 text-center">
-              AI OCR Text Extraction
+              Reading Prescription
             </Text>
             <Text className="text-muted text-xs text-center mb-6">
               {scanStatusMessage}
@@ -520,7 +577,7 @@ export default function ScanScreen() {
                     {selectedPrescription.title}
                   </Text>
                   <Text className="text-muted text-xs mt-0.5">
-                    AI Extracted {editableMeds.length} Medications
+                    Found {editableMeds.length} medicine(s) in the text
                   </Text>
                 </View>
               </View>
@@ -539,9 +596,9 @@ export default function ScanScreen() {
                     )}
                   </View>
                   <View className="flex-1 gap-1">
-                    <Text className="text-foreground text-xs font-bold">AI Verification Status</Text>
-                    <Text className="text-success text-xs font-semibold">✓ 99.4% OCR Confidence</Text>
-                    <Text className="text-muted text-xs">Verified against medical database.</Text>
+                    <Text className="text-foreground text-xs font-bold">Review needed</Text>
+                    <Text className="text-warning text-xs font-semibold">OCR can misread names and doses</Text>
+                    <Text className="text-muted text-xs">Matched to the built-in drug list. Check each line against the paper.</Text>
                   </View>
                 </View>
               </View>
@@ -718,3 +775,4 @@ export default function ScanScreen() {
     </ScreenContainer>
   );
 }
+
